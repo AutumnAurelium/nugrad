@@ -10,6 +10,49 @@ pub mod value;
 pub mod nn;
 pub mod viz;
 
+#[derive(Serialize, Deserialize, Debug)]
+struct MnistSample {
+    pub image: Vec<u8>,
+    pub label: u8
+}
+
+/**
+ * Loads at most `load_samples` samples from a JSONL file and returns their representation.
+ */
+fn load_mnist(filename: &str, load_samples: usize) -> Vec<(Vec<f32>, Vec<f32>)> {
+    assert!(filename.ends_with(".jsonl"));
+
+    let file = File::open(filename).expect(format!("Could not open {}", filename).as_str());
+    let reader = BufReader::new(file);
+
+    let mut data = vec![];
+
+    for (i, result) in reader.lines().enumerate() {
+        let line = result.expect("Failed to read file");
+        let image: MnistSample = serde_json::from_str(line.as_str()).expect("Failed to parse line");
+
+        let mut image_vals = vec![];
+        for pix_byte in image.image {
+            image_vals.push(pix_byte as f32 / 256.0);
+        }
+
+        let mut labels = vec![0.0; 10];
+        labels[image.label as usize] = 1.0;
+        data.push((image_vals, labels));
+
+        if i % (load_samples / 5) == 0 {
+            println!("{}/{}", i, load_samples);
+        }
+
+        if i >= load_samples {
+            break;
+        }
+    }
+
+    return data;
+}
+
+
 fn main() {
     let input_count = 784;
     let neuron_counts = vec![10];
@@ -167,6 +210,6 @@ mod tests {
 
     #[test]
     fn simple_network() {
-
+        
     }
 }

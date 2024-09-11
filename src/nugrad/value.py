@@ -5,7 +5,7 @@ from typing import Callable, List, Optional, Union
 import numpy as np
 
 ForwardFunc = Callable[['Value'], np.ndarray]
-BackwardFunc = Callable[['Value', int], np.ndarray]
+BackwardFunc = Callable
 
 
 class Value:
@@ -13,7 +13,7 @@ class Value:
     Represents a value or operation in the expression graph.
     """
     _forward: ForwardFunc
-    _backward: BackwardFunc
+    _backward: Callable
 
     data: np.ndarray
     grad: Optional[np.ndarray]
@@ -21,6 +21,9 @@ class Value:
     inputs: List['Value']
 
     op: str
+
+    _cached_topo: Optional[List['Value']]
+    
 
     def __init__(self, value: Union[float, int, List, np.ndarray], label=""):
         if isinstance(value, float) or isinstance(value, int):
@@ -35,7 +38,13 @@ class Value:
 
         self.op = label
         self._forward = lambda val : val.data  # no-op
-        self._backward = lambda val, input : np.ones_like(val.data)
+        
+        def backward():
+            pass
+            
+        self._backward = backward
+
+        self._cached_topo = None
 
     def forward(self) -> np.ndarray:
         """
@@ -48,41 +57,69 @@ class Value:
 
         # Then, we call our forward-pass function.
         self.data = self._forward(self)
+        if self.data.shape == ():
+            self.data = np.array([self.data])
 
     def backward(self):
         """
         Performs the backward pass relative to this node.
         """
-        
-        # You have to do gradients on a scalar.
         if self.data.shape != (1,):
             raise ValueError("Gradients can only be calculated relative to scalars.")
-            
-        self.grad = np.ones_like(self.data)
-        self._gradients()
+        
+        # Initialize gradients
+        for node in self.topological_sort():
+            node.grad = np.zeros_like(node.data)
 
-    def _gradients(self):
-        for i, parent in enumerate(self.inputs):
-            print(self.grad)
-            new_grad = self._backward(self, i)
-            
+        self.grad = np.ones_like(self.data)
+        
+        # Perform backward pass in topological order
+        for node in self.topological_sort():
+            node._backward()
+    
+    def topological_sort(self, force_recalc=False) -> List['Value']:
+        if not force_recalc and self._cached_topo is not None:
+            return self._cached_topo
+
+        visited = set()
+        topo_order = []
+
+        def dfs(node):
+            if node not in visited:
+                visited.add(node)
+                for input_node in node.inputs:
+                    dfs(input_node)
+                topo_order.append(node)
+
+        dfs(self)
+        self._cached_topo = topo_order[::-1]  # Reverse the order
+
+        return self._cached_topo
     
     def label(self) -> str:
         name = self.op if self.op != "" else "var"
         return f"{name}\nv={self.data}\ng={self.grad}"
     
     def __str__(self) -> str:
-        return f"{self.label()}(val={self.data}, grad={self.grad})"
+        name = self.op if self.op != "" else "var"
+        return f"{name}(val={self.data}, grad={self.grad})"
+    
+    def __repr__(self) -> str:
+        return str(self)
 
     def sum(self) -> 'Value':
         """
         Sums the vector to a single scalar.
         """
-        out = Value(self.data.sum())
+        out = Value(np.array([self.data.sum()]))
         out.op = "sum"
         out.inputs = [self]
-        out._forward = lambda val : val.inputs[0].data.sum()
-        out._backward = lambda val, in_idx : np.ones_like(val.inputs[in_idx].data)
+        out._forward = lambda val : np.array([val.inputs[0].data.sum()])
+        
+        def backward():
+            self.grad = self.grad + out.grad
+        
+        out._backward = backward
         return out
 
     def relu(self) -> 'Value':
@@ -93,36 +130,56 @@ class Value:
         out.op = "relu"
         out.inputs = [self]
         out._forward = lambda val : np.maximum(0, val.inputs[0].data)
-        out._backward = lambda val, in_idx : (val.inputs[0].data > 0).astype(np.float32)
+        
+        def backward():
+            self.grad = self.grad + out.grad * (self.data > 0)
+        
+        out._backward = backward
         return out
+
+    def sqrt(self) -> 'Value':
+        return self ** 0.5
+
+    def expand(self, size: int) -> 'Value':
+        """
+        'Expands' a scalar value into a vector of length `size`.
+        """
+        return self * Value(np.ones((size,)))
 
     def __add__(self, rhs: 'Value') -> 'Value':
         """
         Adds two values.
         """
+        assert self.data.shape == rhs.data.shape
+            
         out = Value(self.data + rhs.data)
         out.op = "+"
         out.inputs = [self, rhs]
         out._forward = lambda val : val.inputs[0].data + val.inputs[1].data
-        out._backward = lambda val, in_idx : np.ones_like(val.inputs[in_idx].data)
+        
+        def backward():
+            self.grad = self.grad + out.grad
+            rhs.grad = rhs.grad + out.grad
+        out._backward = backward
+        
         return out
 
     def __sub__(self, rhs: 'Value') -> 'Value':
         """
         Subtracts one value from another.
         """
+        assert self.data.shape == rhs.data.shape
+        
         out = Value(self.data - rhs.data)
         out.op = "-"
         out.inputs = [self, rhs]
         out._forward = lambda val : val.inputs[0].data - val.inputs[1].data
 
-        def sub_back(val: 'Value', in_idx: int):
-            if in_idx == 0:
-                return np.ones_like(val.inputs[in_idx].data)
-            else:
-                return -np.ones_like(val.inputs[in_idx].data)
-
-        out._backward = sub_back
+        def backward():
+            self.grad = self.grad + out.grad
+            rhs.grad = self.grad - out.grad
+        
+        out._backward = backward
         return out
 
     def __mul__(self, rhs: 'Value') -> 'Value':
@@ -134,13 +191,43 @@ class Value:
         out.inputs = [self, rhs]
         out._forward = lambda val : val.inputs[0].data * val.inputs[1].data
 
-        def mul_back(val: 'Value', in_idx: int):
-            if in_idx == 0:
-                return val.inputs[1].data
+        def backward():
+            if self.data.shape == (1,):
+                self.grad = self.grad + (out.grad * rhs.data).sum()
             else:
-                return val.inputs[0].data
-        out._backward = mul_back
+                self.grad = self.grad + out.grad * rhs.data
+            
+            if rhs.data.shape == (1,):
+                rhs.grad = rhs.grad + (out.grad * self.data).sum()
+            else:
+                rhs.grad = rhs.grad + out.grad * self.data
 
+        out._backward = backward
+
+        return out
+    
+    def __div__(self, denom: 'Value') -> 'Value':
+        # I don't think there's any good definition for "vector divided by vector"
+        assert denom.data.shape == (1,)
+        
+        return self * (denom ** -1)
+    
+    def __truediv__(self, denom: 'Value') -> 'Value':
+        return self.__div__(denom)
+        
+    def __pow__(self, const: float) -> 'Value':
+        assert not isinstance(const, Value)
+            
+        out = Value(self.data.astype("float32") ** const)
+        out.op = f"^{const}"
+        out.inputs = [self]
+        out._forward = lambda val: val.inputs[0].data.astype("float32") ** const
+        
+        def backward():
+            self.grad = self.grad + out.grad * (const * self.data.astype("float32") ** (const-1))
+        
+        out._backward = backward
+        
         return out
 
     def __neg__(self) -> 'Value':
@@ -148,7 +235,11 @@ class Value:
         out.op = "negate"
         out.inputs = [self]
         out._forward = lambda val : -val.inputs[0].data
-        out._backward = lambda val, in_idx : -np.ones_like(val.inputs[0].data)
+        
+        def backward():
+            self.grad = self.grad + -out.grad
+            
+        out._backward = backward
         return out
 
 def combine_scalars(values: List[Value], no_verify = False) -> Value:
@@ -164,9 +255,9 @@ def combine_scalars(values: List[Value], no_verify = False) -> Value:
     out.inputs = values
     out._forward = lambda val : np.array([inp.data[0] for inp in val.inputs])
 
-    def combine_back(val: 'Value', in_idx: int):
-        out = np.zeros_like(val.inputs[in_idx].data)
-        out[0] = 1
-        return out
-    out._backward = combine_back
+    def backward():
+        for i, val in enumerate(values):
+            val.grad = val.grad + out.grad[i]
+
+    out._backward = backward
     return out

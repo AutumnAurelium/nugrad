@@ -139,6 +139,104 @@ class Value:
 
     def sqrt(self) -> 'Value':
         return self ** 0.5
+    
+    def exp(self) -> 'Value':
+        """
+        Passes each value in the vector through the exponential function.
+        """
+        out = Value(np.exp(self.data))
+        out.op = "exp"
+        out.inputs = [self]
+        out._forward = lambda val : np.exp(val.inputs[0].data)
+        
+        def backward():
+            self.grad = self.grad + out.grad * out.data
+        
+        out._backward = backward
+        return out
+    
+    def tanh(self) -> 'Value':
+        """
+        Applies the hyperbolic tangent function to each value in the vector.
+        """
+        out = Value(np.tanh(self.data))
+        out.op = "tanh"
+        out.inputs = [self]
+        out._forward = lambda val: np.tanh(val.inputs[0].data)
+        
+        def backward():
+            # The derivative of tanh(x) is 1 - tanh^2(x)
+            self.grad = self.grad + out.grad * (1 - out.data ** 2)
+        
+        out._backward = backward
+        return out
+    
+    def clip(self, min_val: float, max_val: float) -> 'Value':
+        """
+        Clips the values in the vector to be between min_val and max_val.
+        """
+        out = Value(np.clip(self.data, min_val, max_val))
+        out.op = f"clip({min_val}, {max_val})"
+        out.inputs = [self]
+        out._forward = lambda val: np.clip(val.inputs[0].data, min_val, max_val)
+        
+        def backward():
+            grad_mask = (self.data >= min_val) & (self.data <= max_val)
+            self.grad = self.grad + out.grad * grad_mask
+        
+        out._backward = backward
+        return out
+
+    def log(self) -> 'Value':
+        """
+        Applies natural logarithm to each value in the vector.
+        """
+        out = Value(np.log(self.data))
+        out.op = "log"
+        out.inputs = [self]
+        out._forward = lambda val: np.log(val.inputs[0].data)
+        
+        def backward():
+            self.grad = self.grad + out.grad / self.data
+        
+        out._backward = backward
+        return out
+    
+    def mean(self) -> 'Value':
+        """
+        Computes the mean of all elements in the vector.
+        """
+        out = Value(np.array([np.mean(self.data)]))
+        out.op = "mean"
+        out.inputs = [self]
+        out._forward = lambda val: np.array([np.mean(val.inputs[0].data)])
+        
+        def backward():
+            self.grad = self.grad + out.grad / self.data.size
+        
+        out._backward = backward
+        return out
+    
+    def max(self) -> 'Value':
+        """
+        Returns the maximum value in the vector.
+        """
+        out = Value(np.max(self.data))
+        out.op = "max"
+        out.inputs = [self]
+        out._forward = lambda val : np.max(val.inputs[0].data)
+        
+        def backward():
+            self.grad = self.grad + out.grad * (self.data == out.data)
+        
+        out._backward = backward
+        return out
+    
+    def __neg__(self) -> 'Value':
+        """
+        Negates the value.
+        """
+        return self * -1
 
     def expand(self, size: int) -> 'Value':
         """

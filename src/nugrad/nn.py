@@ -85,6 +85,14 @@ def rmse_loss(predictions: Value, targets: Value):
     """
     return (((predictions - targets) ** 2).sum() / Value(predictions.data.shape[0])).sqrt()
 
+def binary_cross_entropy_loss(predictions: Value, targets: Value) -> Value:
+    """
+    Calculates the binary cross-entropy loss between the predictions and targets.
+    """
+    epsilon = 1e-7  # Small constant to avoid log(0)
+    predictions = predictions.clip(epsilon, 1 - epsilon)
+    return -((targets * predictions.log()) + ((Value(1) - targets) * (Value(1) - predictions).log())).mean()
+
 def mlp_params(n_inputs: int, neuron_counts: List[int], seed=None, pos_only=False, init_all=None) -> List[List[List[Value]]]:
     """
     Generates a list of parameters for an MLP of a given size.
@@ -125,9 +133,12 @@ def activation_from_str(output: Value, name: str) -> Value:
     if name == "relu":
         return output.relu()
     elif name == "softmax":
-        return output.softmax()
+        exp_x = (output - output.max()).exp()
+        return exp_x / exp_x.sum()
     elif name == "sigmoid":
-        return output.sigmoid()
+        return Value(1) / (Value(1) + (-output).exp())
+    elif name == "tanh":
+        return output.tanh()
 
 def flatten_mlp_params(params: List[List[List[Value]]]) -> List[Value]:
     flat = []

@@ -11,6 +11,15 @@ import nugrad.nn as nn
 import nugrad.viz as viz
 from nugrad.value import Value
 
+def test_exp():
+    a = Value(5)
+    exp = a.exp()
+    
+    exp.backward()
+    
+    assert exp.data == np.exp(5)
+    assert a.grad == np.exp(5)
+
 def test_rmse():
     output = Value([1.5, 2.5, 1.5, 3])
     target = Value([1, 2, 2, 3.5])
@@ -151,7 +160,7 @@ def test_mlp():
     for seed in range(1):
         inputs = Value(np.array([i for i in range(4)]))
         mlp_shape = [2, 1]
-        mlp_activations = ["softmax", "sigmoid"]
+        mlp_activations = ["relu", "relu"]
         mlp = nn.MLP(inputs, mlp_shape, mlp_activations, nn.mlp_params(inputs.data.shape[0], mlp_shape, seed=seed, pos_only=True))
         
         mlp.output.forward()
@@ -216,7 +225,7 @@ def test_training():
     loss.forward()
     loss.backward()
     
-    last_loss = loss.grad
+    last_loss = loss.data
     
     for i in range(50):
         print(f"it{i}, l={last_loss}")

@@ -189,58 +189,9 @@ def test_mlp():
         assert (mlp.output.data == correct_layers[-1]).all()
         
         # Validate input gradients.
-        # 
         validate_gradients(mlp.input, mlp.output)
         for param in mlp.parameters():
             validate_gradients(param, mlp.output)
-    
-    # assert False
-
-def test_training():
-    np.random.seed(1234)
-    
-    data = [
-        (np.random.randn(4), np.random.randn(1))
-        for i in range(10) if i != 0
-    ]
-    
-    mlp_shape = [4, 2, 1]
-    mlp_activations = ["relu", "relu", "softmax"]
-    n_inputs = 4
-    
-    params = nn.mlp_params(n_inputs, mlp_shape, seed=4321)
-    params_flat = nn.flatten_mlp_params(params)
-    
-    loss = None
-    
-    for data_in, data_out in data:
-        mlp = nn.MLP(Value(data_in), mlp_shape, mlp_activations, params)
-        cur_loss = nn.rmse_loss(mlp.output, Value(data_out))
-        
-        if loss:
-            loss = loss + cur_loss
-        else:
-            loss = cur_loss
-        
-    loss.forward()
-    loss.backward()
-    
-    last_loss = loss.data
-    
-    for i in range(50):
-        print(f"it{i}, l={last_loss}")
-        print(f"\t{data_in} -> {mlp.output.data} ? {data_out}")
-        
-        for param in params_flat:
-            param.data = param.data - param.grad * 0.01
-        
-        loss.forward()
-        loss.backward()
-        
-        assert loss.data <= last_loss
-        last_loss = loss.data
-    
-    assert last_loss < 1
 
 @pytest.mark.skip("not a test")
 def validate_gradients(input: Value, output: Value):

@@ -231,12 +231,6 @@ class Value:
         
         out._backward = backward
         return out
-    
-    def __neg__(self) -> 'Value':
-        """
-        Negates the value.
-        """
-        return self * -1
 
     def expand(self, size: int) -> 'Value':
         """

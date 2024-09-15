@@ -42,7 +42,7 @@ class Layer:
     neurons: List[Neuron]
     output: Value
 
-    def __init__(self, inputs: Value, n_neurons: int, activation: str, params: List[List[Value]]):
+    def __init__(self, inputs: Value, n_neurons: int, activation: str, params: List[List[Value]], first_layer=False):
         self.input = inputs
         self.neurons = [Neuron(inputs, activation, params[i]) for i in range(n_neurons)]
         self.output = combine_scalars([n.output for n in self.neurons])
